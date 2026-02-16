@@ -1,31 +1,30 @@
-name: Node.js CI
+name: CI/CD
 
-# This workflow runs only on pushes to the main branch.
 on:
   push:
     branches:
       - main
 
 jobs:
-  push-to-dockerhub:
+  build-and-push:
     runs-on: ubuntu-latest
-
     steps:
+      # 1. Checkout the repository code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 5. Set up Docker Buildx for efficient builds
+      # 2. Set up Docker Buildx for efficient builds
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 6. Log in to Docker Hub
+      # 3. Log in to Docker Hub
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 7. Build and push image to Docker Hub
+      # 4. Build and push image to Docker Hub
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -37,22 +36,25 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy-to-dokploy:
-    needs: push-to-dockerhub
+  deploy:
+    needs: build-and-push
     runs-on: ubuntu-latest
-
     steps:
-
-      # 8. Trigger Dokploy to deploy with the new image
-      - name: Trigger Dokploy Deploy
+      # 5. Update IMAGE_TAG environment variable in Dokploy
+      - name: Update IMAGE_TAG in Dokploy
         run: |
-          curl -X POST "${{ secrets.DOKPLOY_URL }}/api/application.deploy" \
+          curl -sf -X POST "${{ secrets.DOKPLOY_URL }}/api/application.saveEnvironment" \
             -H "x-api-key: ${{ secrets.DOKPLOY_API_KEY }}" \
             -H "Content-Type: application/json" \
             -d '{
-                  "applicationId": "${{ secrets.DOKPLOY_APP_ID }}"
-                  "env": {
-                    "IMAGE_TAG": "${IMAGE_TAG}"
-                  }
-                }
+              "applicationId": "${{ secrets.DOKPLOY_APP_ID }}",
+              "env": "IMAGE_TAG=${{ github.sha }}"
             }'
+
+      # 6. Trigger Dokploy to deploy with the new image
+      - name: Trigger Dokploy Deploy
+        run: |
+          curl -sf -X POST "${{ secrets.DOKPLOY_URL }}/api/application.deploy" \
+            -H "x-api-key: ${{ secrets.DOKPLOY_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"applicationId": "${{ secrets.DOKPLOY_APP_ID }}"}'
